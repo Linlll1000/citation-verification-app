@@ -9,6 +9,12 @@ from src.reference_parser import parse_reference_list
 from src.schemas import CitationPair, ReferenceMatchStatus
 from src.validation import IssueSeverity, ValidationIssue
 
+# 汪老師 2026-11-17 流程圖第 ② 步：「每一篇被引用來源建立一筆查核項目」。
+# 共引句拆成子主張時，原本對「每個引用 × 每個子主張」各產生一筆配對，兩篇來源會
+# 變成四列，其中必有依設計就配錯的組合（[1] 的論文拿去判 [2] 的主張）。
+# 預設一篇來源一列，判斷的陳述用原句；老師若確認要採用子主張拆解，改成 True 還原。
+SPLIT_SHARED_SUBCLAIMS = False
+
 
 @dataclass(frozen=True, slots=True)
 class PairingOutcome:
@@ -40,8 +46,11 @@ def build_pairing_outcome(claim_text: str, reference_text: str) -> PairingOutcom
         )
 
     for claim_number, claim in enumerate(claims, start=1):
-        evaluated_claims = claim.subclaims or (claim.claim_text,)
-        group_id = f"claim_{claim_number:03d}" if claim.subclaims else ""
+        split_subclaims = SPLIT_SHARED_SUBCLAIMS and bool(claim.subclaims)
+        evaluated_claims = claim.subclaims if split_subclaims else (claim.claim_text,)
+        group_id = f"claim_{claim_number:03d}" if split_subclaims else ""
+        # 不拆子主張時，原句就是判斷的陳述，不必再填 original_claim_text
+        original_claim_text = "" if claim.subclaims and not split_subclaims else claim.original_claim_text
         for duplicate_number in claim.duplicate_numbers:
             issues.append(
                 ValidationIssue(
@@ -82,7 +91,7 @@ def build_pairing_outcome(claim_text: str, reference_text: str) -> PairingOutcom
                         is_compound=claim.is_compound,
                         match_status=status,
                         error_message=error_message,
-                        original_claim_text=claim.original_claim_text,
+                        original_claim_text=original_claim_text,
                         claim_group_id=group_id,
                     )
                 )

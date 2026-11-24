@@ -74,3 +74,16 @@ def test_pairs_separately_cited_clauses_with_their_own_claims() -> None:
 def test_no_numeric_citations_returns_no_pairs() -> None:
     assert build_citation_pairs("No citation here.", "[1] Source one.") == []
 
+
+
+def test_compound_sentence_yields_one_pair_per_cited_source_by_default():
+    """汪老師流程圖第 ② 步：每一篇被引用來源一筆查核項目，不因子主張而乘開。"""
+    sentence = "BERT and SciBERT are pretrained language models [1], [2]."
+    refs = '[1] J. Devlin, "BERT," NAACL, 2019.\n[2] I. Beltagy, "SciBERT," EMNLP, 2019.'
+
+    pairs = build_citation_pairs(sentence, refs)
+
+    assert [pair.ref_number for pair in pairs] == [1, 2]
+    assert {pair.claim_text for pair in pairs} == {sentence}
+    assert all(not pair.claim_group_id for pair in pairs)
+    assert all(not pair.original_claim_text for pair in pairs)

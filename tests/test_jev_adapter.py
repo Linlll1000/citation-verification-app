@@ -120,6 +120,8 @@ def test_aside_from_q2_only_verbatim_abstract_excerpts_can_be_selected(monkeypat
 def test_shared_claim_coverage_uses_evidence_instead_of_reference_order(
     monkeypatch, papers, expected_supported, expected_pending,
 ):
+    # 這個測試驗的是共引句拆子主張的行為，預設關閉，這裡明確開啟
+    monkeypatch.setattr("src.pairing.SPLIT_SHARED_SUBCLAIMS", True)
     source_sentence = "BERT and SciBERT are pretrained language models [1], [2]."
     refs = "\n".join(f'[{index}] A. Author, "{paper}," 2019.' for index, paper in enumerate(papers, 1))
     subclaims = ("BERT is a pretrained language model.", "SciBERT is a pretrained language model.")
