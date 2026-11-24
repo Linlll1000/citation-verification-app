@@ -88,6 +88,7 @@ def analyze_pairs(pairs: list[CitationPair]) -> tuple[list[AnalysisRow], str]:
     rows = run_method_b(
         rows, st.session_state.claim_text, st.session_state.reference_text, api_key,
         model=os.environ.get("OPENROUTER_METHOD_B_MODEL") or DEFAULT_METHOD_B_MODEL,
+        evidence_lookup=reference_adapter.lookup,
     )
     return rows, "jev"
 
@@ -199,7 +200,9 @@ if st.session_state.show_results:
             "<span style='background:#FFF3E0;color:#A65300;padding:3px 10px;"
             "border-radius:12px;font-weight:600'>不確定</span> "
             "<span style='background:#FDECEC;color:#B42318;padding:3px 10px;"
-            "border-radius:12px;font-weight:600'>不支持</span>",
+            "border-radius:12px;font-weight:600'>不支持</span> "
+            "<span style='background:#F2F4F7;color:#475467;padding:3px 10px;"
+            "border-radius:12px;font-weight:600'>無法查核</span>",
             unsafe_allow_html=True,
         )
         frame = build_output_dataframe(rows)
@@ -244,7 +247,8 @@ if st.session_state.show_results:
         )
         st.caption(
             "支持 ≥ 0.70 · 不確定 ≥ 0.40 且 < 0.70 · 不支持 < 0.40。"
-            "方法 A 篇名不相關時直接列為不支持。低分可能來自證據不足，判斷範圍見「方法 A 證據解讀」。"
+            "方法 A 篇名不相關時直接列為不支持。拿不到摘要時兩個方法都列為無法查核、不給分數。"
+            "兩個方法用同一份摘要、同一套判斷標準，只判斷句子歸給該文獻的部分。"
         )
         st.download_button(
             "匯出 CSV",

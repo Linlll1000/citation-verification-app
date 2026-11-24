@@ -46,6 +46,7 @@ class SupportBand(StrEnum):
     SUPPORTED = "支持"
     UNCERTAIN = "不確定"
     UNSUPPORTED = "不支持"
+    UNVERIFIABLE = "無法查核"
 
 
 class ReferenceMatchStatus(StrEnum):

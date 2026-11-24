@@ -28,6 +28,7 @@ class JudgmentStatus(StrEnum):
     BATCH_STOPPED = "API 暫停"
     EVIDENCE_UNAVAILABLE = "查詢失敗，暫不評分"
     TITLE_AFTER_LOOKUP_FAILURE = "摘要查詢失敗，依篇名評分"
+    UNVERIFIABLE = "無內容證據，無法查核"
     MOCK = "模擬結果"
 
 

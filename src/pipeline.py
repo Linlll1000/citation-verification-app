@@ -54,7 +54,11 @@ def run_method_a_pipeline(
             support_score=judgment.support_score,
             evidence_basis=judgment.evidence_basis,
             source_status=source_status,
-            band_override=SupportBand.UNSUPPORTED if stopped else None,
+            band_override=(
+                SupportBand.UNSUPPORTED if stopped
+                else SupportBand.UNVERIFIABLE if judgment.status is JudgmentStatus.UNVERIFIABLE
+                else None
+            ),
         )
         rows.append(
             AnalysisRow(

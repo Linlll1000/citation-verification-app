@@ -46,6 +46,7 @@ SUPPORT_BAND_COLORS = {
     SupportBand.SUPPORTED.value: ("#E8F5E9", "#1B5E20"),
     SupportBand.UNCERTAIN.value: ("#FFF3E0", "#A65300"),
     SupportBand.UNSUPPORTED.value: ("#FDECEC", "#B42318"),
+    SupportBand.UNVERIFIABLE.value: ("#F2F4F7", "#475467"),
 }
 
 

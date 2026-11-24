@@ -144,7 +144,7 @@ def test_shared_claim_coverage_uses_evidence_instead_of_reference_order(
     reference_adapter = Mock()
     reference_adapter.lookup.side_effect = lookup
     pairs = build_citation_pairs(source_sentence, refs)
-    rows = run_method_a_pipeline(pairs, reference_adapter, OpenRouterJevAdapter("test-placeholder"))
+    rows = run_method_a_pipeline(pairs, reference_adapter, OpenRouterJevAdapter("test-placeholder", title_only_scoring=True))
 
     assert len(rows) == 4
     assert [state["claim"] for state in stub.states if "title" in state] == list(subclaims) * 2
@@ -171,7 +171,7 @@ def test_unrelated_title_skips_lookup_and_q2_and_exports_blank_score(monkeypatch
     stub = DecisionsStub(monkeypatch, title_answer("unrelated"))
     reference_adapter = Mock()
     rows = run_method_a_pipeline(
-        [PAIR], reference_adapter, OpenRouterJevAdapter("test-placeholder"),
+        [PAIR], reference_adapter, OpenRouterJevAdapter("test-placeholder", title_only_scoring=True),
     )
     reference_adapter.lookup.assert_not_called()
     assert stub.events == ["title_relevance"]
@@ -217,12 +217,13 @@ def test_abstract_lookup_runs_between_q1_and_q2(
 
     reference_adapter.lookup.side_effect = lookup
     [row] = run_method_a_pipeline(
-        [PAIR], reference_adapter, OpenRouterJevAdapter("test-placeholder"),
+        [PAIR], reference_adapter, OpenRouterJevAdapter("test-placeholder", title_only_scoring=True),
         prepare_reference=lambda pair: TITLE,
     )
     assert stub.events == ["title_relevance", "lookup", "citation_support"]
     assert stub.states[1] == {
-        "claim": PAIR.claim_text, "evidence_type": evidence, "evidence": abstract or TITLE.title,
+        "claim": PAIR.claim_text, "cited_as": PAIR.citation_marker,
+        "evidence_type": evidence, "evidence": abstract or TITLE.title,
     }
     assert row.judgment.raw_support_score == 0.699
     assert row.judgment.status is (
@@ -263,7 +264,7 @@ def test_abstract_lookup_runs_between_q1_and_q2(
 )
 def test_clip_and_classify_q2_without_rounding(monkeypatch, raw, score, band):
     DecisionsStub(monkeypatch, title_answer("related"), {"type": "noul", "noul": raw})
-    [row] = run_method_a_pipeline([PAIR], None, OpenRouterJevAdapter("test-placeholder"))
+    [row] = run_method_a_pipeline([PAIR], None, OpenRouterJevAdapter("test-placeholder", title_only_scoring=True))
     assert row.method_a.support_score == score
     assert row.method_a.band is band
 
@@ -271,7 +272,7 @@ def test_clip_and_classify_q2_without_rounding(monkeypatch, raw, score, band):
 @pytest.mark.parametrize("bad_score", [-0.01, 1.01, True, "0.7", None])
 def test_invalid_q2_preserves_title_result_and_produces_no_grade(monkeypatch, bad_score):
     DecisionsStub(monkeypatch, title_answer("related"), {"type": "noul", "noul": bad_score})
-    [row] = run_method_a_pipeline([PAIR], None, OpenRouterJevAdapter("test-placeholder"))
+    [row] = run_method_a_pipeline([PAIR], None, OpenRouterJevAdapter("test-placeholder", title_only_scoring=True))
     assert row.judgment.status is JudgmentStatus.SUPPORT_ERROR
     assert row.judgment.confidence == 0.6
     assert row.method_a.support_score is None
@@ -284,7 +285,7 @@ def test_failed_q1_preserves_row_and_continues_batch(monkeypatch, failure):
         monkeypatch, failure, title_answer("related"), {"type": "noul", "noul": 0.71},
     )
     broken, passed = run_method_a_pipeline(
-        [PAIR, PAIR], None, OpenRouterJevAdapter("test-placeholder"),
+        [PAIR, PAIR], None, OpenRouterJevAdapter("test-placeholder", title_only_scoring=True),
     )
     assert stub.events == ["title_relevance", "title_relevance", "citation_support"]
     assert broken.judgment.status is JudgmentStatus.TITLE_ERROR
@@ -296,7 +297,7 @@ def test_failed_q1_preserves_row_and_continues_batch(monkeypatch, failure):
 def test_rejected_key_or_credits_does_not_call_again_in_same_batch(monkeypatch, status):
     failure = HTTPError(DECISIONS_URL, status, "Access failed", None, BytesIO())
     stub = DecisionsStub(monkeypatch, failure, title_answer("unrelated"))
-    adapter = OpenRouterJevAdapter("test-placeholder")
+    adapter = OpenRouterJevAdapter("test-placeholder", title_only_scoring=True)
     rows = run_method_a_pipeline([PAIR, PAIR], None, adapter)
     assert stub.events == ["title_relevance"]
     assert [row.judgment.status for row in rows] == [
@@ -321,11 +322,12 @@ def test_bad_teammate_lookup_uses_only_original_title(monkeypatch, failed_lookup
         adapter.lookup.side_effect = failed_lookup
     else:
         adapter.lookup.return_value = failed_lookup
-    [row] = run_method_a_pipeline([PAIR], adapter, OpenRouterJevAdapter("test-placeholder"))
+    [row] = run_method_a_pipeline([PAIR], adapter, OpenRouterJevAdapter("test-placeholder", title_only_scoring=True))
     assert row.method_a.band is SupportBand.UNCERTAIN
     assert row.method_a.source_status is SourceStatus.LOOKUP_FAILED
     assert stub.events == ["title_relevance", "citation_support"]
-    assert stub.states[1] == {"claim": PAIR.claim_text, "evidence_type": "篇名", "evidence": TITLE.title}
+    assert stub.states[1] == {"claim": PAIR.claim_text, "cited_as": PAIR.citation_marker,
+                              "evidence_type": "篇名", "evidence": TITLE.title}
     assert row.judgment.status is JudgmentStatus.TITLE_AFTER_LOOKUP_FAILURE
     record = row.to_record()
     assert record["方法 A 判斷依據"] == "篇名"
@@ -338,7 +340,7 @@ def test_bad_metadata_isolated_to_one_pair(monkeypatch):
     stub = DecisionsStub(monkeypatch, title_answer("related"), {"type": "noul", "noul": 0.71})
     prepare = Mock(side_effect=[KeyError("private detail"), TITLE])
     broken, passed = run_method_a_pipeline(
-        [PAIR, PAIR], None, OpenRouterJevAdapter("test-placeholder"), prepare_reference=prepare,
+        [PAIR, PAIR], None, OpenRouterJevAdapter("test-placeholder", title_only_scoring=True), prepare_reference=prepare,
     )
     assert stub.events == ["title_relevance", "citation_support"]
     assert broken.judgment.status is JudgmentStatus.REFERENCE_ERROR
@@ -366,7 +368,7 @@ def test_meeting_example_runs_with_the_teammate_lookup_interface(monkeypatch):
     adapter = Mock()
     adapter.lookup.side_effect = lookup
     pairs = build_citation_pairs(MOCK_CLAIM, MOCK_REFERENCES)
-    rows = run_method_a_pipeline(pairs, adapter, OpenRouterJevAdapter("test-placeholder"))
+    rows = run_method_a_pipeline(pairs, adapter, OpenRouterJevAdapter("test-placeholder", title_only_scoring=True))
     assert stub.events == [
         "title_relevance",
         "title_relevance", "lookup:107", "citation_support",
@@ -385,7 +387,7 @@ def test_rate_limit_after_q1_preserves_title_and_hides_response_body(monkeypatch
     response_body = BytesIO(b"private upstream error details")
     failure = HTTPError(DECISIONS_URL, 429, "Too Many Requests", None, response_body)
     DecisionsStub(monkeypatch, title_answer("related"), failure)
-    [row] = run_method_a_pipeline([PAIR], None, OpenRouterJevAdapter("test-placeholder"))
+    [row] = run_method_a_pipeline([PAIR], None, OpenRouterJevAdapter("test-placeholder", title_only_scoring=True))
     assert row.judgment.status is JudgmentStatus.SUPPORT_ERROR
     assert row.judgment.title_choice == "相關"
     assert row.method_a.band is None
@@ -401,7 +403,7 @@ def test_missing_title_and_ref_make_no_jev_calls(monkeypatch):
         "pair_002", "Claim [2].", "[2]", 2, "", match_status=ReferenceMatchStatus.MISSING_REFERENCE,
     )
     rows = run_method_a_pipeline(
-        [missing_title, missing_ref], None, OpenRouterJevAdapter("test-placeholder"),
+        [missing_title, missing_ref], None, OpenRouterJevAdapter("test-placeholder", title_only_scoring=True),
     )
     assert stub.events == []
     assert rows[0].judgment.status is JudgmentStatus.MISSING_TITLE
@@ -422,24 +424,28 @@ def test_missing_key_preserves_pairing_and_uses_no_network(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("choice", "provider", "source_status", "basis", "band", "sequence"),
+    ("choice", "provider", "source_status", "basis", "band", "sequence", "b_band"),
     [
         ("related", "semantic_scholar", "拿到摘要", "摘要", "不確定",
-         ["title_relevance", "semantic_scholar", "citation_support", "evidence_excerpt"]),
+         ["title_relevance", "semantic_scholar", "citation_support", "evidence_excerpt"], "不支持"),
         ("uncertain", "openalex", "拿到摘要", "摘要", "不確定",
-         ["title_relevance", "semantic_scholar", "openalex", "citation_support", "evidence_excerpt"]),
-        ("uncertain", "", "查不到", "篇名", "不確定",
-         ["title_relevance", "semantic_scholar", "openalex", "citation_support"]),
-        ("unrelated", "", "Q1 停止未查詢", "篇名", "不支持", ["title_relevance"]),
+         ["title_relevance", "semantic_scholar", "openalex", "citation_support", "evidence_excerpt"], "不支持"),
+        ("uncertain", "", "查不到", "無可用證據", "無法查核",
+         ["title_relevance", "semantic_scholar", "openalex"], "無法查核"),
+        ("unrelated", "", "Q1 停止未查詢", "篇名", "不支持",
+         ["title_relevance", "semantic_scholar", "openalex"], "無法查核"),
+        ("unrelated", "semantic_scholar", "Q1 停止未查詢", "篇名", "不支持",
+         ["title_relevance", "semantic_scholar"], "不支持"),
     ],
 )
 def test_streamlit_connects_jev_to_real_lookup_adapter_with_stubbed_http(
-    monkeypatch, choice, provider, source_status, basis, band, sequence,
+    monkeypatch, choice, provider, source_status, basis, band, sequence, b_band,
 ):
     stub = DecisionsStub(monkeypatch, title_answer(choice), {"type": "noul", "noul": 0.40},
                         {"type": "choice", "choice": "excerpt_1"})
     scholar_abstract = "Semantic Scholar delivered the abstract."
     openalex_abstract = "OpenAlex delivered the abstract."
+    expected_abstract = {"semantic_scholar": scholar_abstract, "openalex": openalex_abstract, "": ""}[provider]
 
     def lookup(url, params=None, headers=None):
         if url == f"{S2_BASE}/paper/search/match":
@@ -467,8 +473,8 @@ def test_streamlit_connects_jev_to_real_lookup_adapter_with_stubbed_http(
         given = json.loads(messages[1]["content"])
         assert given == {
             "paragraph": PAIR.claim_text,
-            "bibliography": PAIR.ref_raw,
-            "citation_pairs": [{"pair_id": "pair_001", "claim": PAIR.claim_text, "ref_number": 1}],
+            "citation_pairs": [{"pair_id": "pair_001", "claim": PAIR.claim_text,
+                                "cited_as": PAIR.citation_marker, "evidence": expected_abstract}],
         }
         b_requests.append(given)
         result = {"results": [{"pair_id": "pair_001", "support_score": 0.10}]}
@@ -489,8 +495,10 @@ def test_streamlit_connects_jev_to_real_lookup_adapter_with_stubbed_http(
     assert stub.events == sequence
     [record] = app.dataframe[0].value.to_dict("records")
     [row] = app.session_state["analysis_rows"]
-    assert row.method_a.support_score == (None if choice == "unrelated" else 0.40)
-    assert row.reference.abstract_source == provider
+    a_scored = choice != "unrelated" and bool(provider)
+    a_provider = provider if choice != "unrelated" else ""
+    assert row.method_a.support_score == (0.40 if a_scored else None)
+    assert row.reference.abstract_source == a_provider
     assert record["方法 A 證據層級"] == band
     assert record["方法 A 判斷依據"] == basis
     assert record["來源狀態"] == source_status
@@ -498,26 +506,55 @@ def test_streamlit_connects_jev_to_real_lookup_adapter_with_stubbed_http(
         "semantic_scholar": "Semantic Scholar",
         "openalex": "OpenAlex",
         "": "",
-    }[provider]
-    if choice != "unrelated":
-        expected_evidence = {
-            "semantic_scholar": scholar_abstract,
-            "openalex": openalex_abstract,
-            "": TITLE.title,
-        }
-        assert stub.states[1]["evidence"] == expected_evidence[provider]
-        assert record["方法 A 摘要節錄"] == (expected_evidence[provider] if provider else "")
+    }[a_provider]
+    if a_scored:
+        assert stub.states[1]["evidence"] == expected_abstract
+        assert record["方法 A 摘要節錄"] == expected_abstract
         sent_title = stub.states[1].get("verified_source_title")
         audit = json.loads(record["方法 A 查核紀錄"])
-        assert sent_title == (TITLE.title if provider else None)
+        assert sent_title == TITLE.title
         assert audit.get("verified_source_title") == sent_title
-    assert record["方法 B 支持分數"] == 0.10
-    assert record["方法 B 證據層級"] == "不支持"
-    assert record["方法 B 判斷狀態"] == "完成"
-    assert len(b_requests) == 1
+    assert record["方法 B 證據層級"] == b_band
+    if b_band == "無法查核":
+        assert record["方法 B 支持分數"] is None or record["方法 B 支持分數"] != record["方法 B 支持分數"]
+        assert record["方法 B 判斷狀態"] == "無內容證據，無法查核"
+        assert b_requests == []
+    else:
+        assert record["方法 B 支持分數"] == 0.10
+        assert record["方法 B 判斷狀態"] == "完成"
+        assert record["方法 B 判斷依據"] == "摘要"
+        assert len(b_requests) == 1
     assert len(app.get("download_button")) == 1
 
     app.toggle[0].set_value(True).run()
     assert stub.events == sequence
-    assert len(b_requests) == 1
+    assert len(b_requests) == (0 if b_band == "無法查核" else 1)
     assert "使用 Jev" in app.info[0].value
+
+
+@pytest.mark.parametrize("source_status", [
+    SourceStatus.NO_ABSTRACT, SourceStatus.NOT_FOUND, SourceStatus.LOOKUP_FAILED,
+])
+def test_default_mode_marks_title_only_evidence_as_unverifiable(monkeypatch, source_status):
+    """汪老師 11/10 會後補充第 4 點：拿不到內容證據就記錄無法查核，不用篇名評分。"""
+    stub = DecisionsStub(monkeypatch, title_answer("related"))
+    reference_adapter = Mock()
+    reference_adapter.lookup.return_value = ReferenceLookupResult(1, TITLE.title, source_status=source_status)
+    [row] = run_method_a_pipeline([PAIR], reference_adapter, OpenRouterJevAdapter("test-placeholder"),
+                                  prepare_reference=lambda pair: TITLE)
+    assert stub.events == ["title_relevance"]
+    assert row.judgment.status is JudgmentStatus.UNVERIFIABLE
+    assert row.method_a.support_score is None
+    assert row.method_a.band is SupportBand.UNVERIFIABLE
+    record = row.to_record()
+    assert record["方法 A 證據層級"] == "無法查核"
+    assert record["方法 A 判斷依據"] == "無可用證據"
+    assert record["方法 A 判斷狀態"] == "無內容證據，無法查核"
+    assert record["來源狀態"] == source_status.value
+
+
+def test_support_question_names_the_cited_marker(monkeypatch):
+    stub = DecisionsStub(monkeypatch, title_answer("related"), {"type": "noul", "noul": 0.9})
+    reference = ReferenceLookupResult(1, TITLE.title, abstract="Evidence.", source_status=SourceStatus.GOT_ABSTRACT)
+    OpenRouterJevAdapter("test-placeholder").judge(PAIR, reference)
+    assert stub.states[1]["cited_as"] == PAIR.citation_marker
